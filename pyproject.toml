@@ -1,0 +1,26 @@
+[project]
+name = "mojo-pytz"
+version = "0.1.0"
+description = "pytz-compatible timezone offset resolution accelerated with Mojo"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Lee Penkman", email = "leepenkman@gmail.com" }]
+keywords = ["mojo", "pytz", "timezone", "tzdata"]
+dependencies = ["numpy", "pytz"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/lee101/mojo-pytz"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+
+[tool.setuptools.packages.find]
+where = ["python"]
