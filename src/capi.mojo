@@ -1,14 +1,8 @@
 """Bulk timezone transition lookup exposed through a small C ABI."""
 
-from std.algorithm import parallelize
-from std.sys.info import num_physical_cores
-
-
-comptime I64Ptr = UnsafePointer[Int64, AnyOrigin[mut=True]]
-comptime I32Ptr = UnsafePointer[Int32, AnyOrigin[mut=True]]
-comptime I8Ptr = UnsafePointer[Int8, AnyOrigin[mut=True]]
-comptime LOCAL_PARALLEL_COUNT = 100000
-comptime LOCAL_MAX_WORKERS = 8
+comptime I64Ptr = Pointer[Int64, MutUntrackedOrigin]
+comptime I32Ptr = Pointer[Int32, MutUntrackedOrigin]
+comptime I8Ptr = Pointer[Int8, MutUntrackedOrigin]
 
 
 def upper_bound(values: I64Ptr, n: Int, needle: Int64) -> Int:
@@ -16,7 +10,7 @@ def upper_bound(values: I64Ptr, n: Int, needle: Int64) -> Int:
     var hi = n
     while lo < hi:
         var mid = lo + (hi - lo) // 2
-        if values[mid] <= needle:
+        if values[unsafe_offset=mid] <= needle:
             lo = mid + 1
         else:
             hi = mid
@@ -42,24 +36,29 @@ def resolve_utc(
 
     var sorted = True
     for i in range(1, count):
-        if timestamps[i] < timestamps[i - 1]:
+        if timestamps[unsafe_offset=i] < timestamps[unsafe_offset=i - 1]:
             sorted = False
             break
 
     if sorted:
-        var period = period_at(transitions, ntransitions, timestamps[0])
-        indices[0] = Int32(period)
+        var period = period_at(
+            transitions, ntransitions, timestamps[unsafe_offset=0]
+        )
+        indices[unsafe_offset=0] = Int32(period)
         for i in range(1, count):
             while (
                 period + 1 < ntransitions
-                and transitions[period + 1] <= timestamps[i]
+                and transitions[unsafe_offset=period + 1]
+                <= timestamps[unsafe_offset=i]
             ):
                 period += 1
-            indices[i] = Int32(period)
+            indices[unsafe_offset=i] = Int32(period)
     else:
         for i in range(count):
-            indices[i] = Int32(
-                period_at(transitions, ntransitions, timestamps[i])
+            indices[unsafe_offset=i] = Int32(
+                period_at(
+                    transitions, ntransitions, timestamps[unsafe_offset=i]
+                )
             )
 
 
@@ -83,12 +82,12 @@ def resolve_local_one(
         stop = ntransitions
 
     for period in range(start, stop):
-        var utc_value = wall - offsets[period]
-        if utc_value < transitions[period]:
+        var utc_value = wall - offsets[unsafe_offset=period]
+        if utc_value < transitions[unsafe_offset=period]:
             continue
         if (
             period + 1 < ntransitions
-            and utc_value >= transitions[period + 1]
+            and utc_value >= transitions[unsafe_offset=period + 1]
         ):
             continue
         if first < 0:
@@ -97,14 +96,14 @@ def resolve_local_one(
             second = period
 
     if first >= 0 and second < 0:
-        index_result[result_pos] = Int32(first)
-        status_result[result_pos] = 0
+        index_result[unsafe_offset=result_pos] = Int32(first)
+        status_result[unsafe_offset=result_pos] = 0
         return
 
     if first < 0:
         if is_dst < 0:
-            index_result[result_pos] = -1
-            status_result[result_pos] = 1
+            index_result[unsafe_offset=result_pos] = -1
+            status_result[unsafe_offset=result_pos] = 1
             return
 
         var near = period_at(transitions, ntransitions, wall)
@@ -113,43 +112,50 @@ def resolve_local_one(
         var gap_start = max(1, near - 2)
         var gap_stop = min(ntransitions, near + 4)
         for after in range(gap_start, gap_stop):
-            var old_edge = transitions[after] + offsets[after - 1]
-            var new_edge = transitions[after] + offsets[after]
+            var old_edge = (
+                transitions[unsafe_offset=after]
+                + offsets[unsafe_offset=after - 1]
+            )
+            var new_edge = (
+                transitions[unsafe_offset=after] + offsets[unsafe_offset=after]
+            )
             if old_edge <= wall and wall < new_edge:
                 gap_before = after - 1
                 gap_after = after
                 break
 
         if gap_before < 0:
-            index_result[result_pos] = Int32(near)
+            index_result[unsafe_offset=result_pos] = Int32(near)
         elif is_dst != 0:
-            index_result[result_pos] = Int32(gap_after)
+            index_result[unsafe_offset=result_pos] = Int32(gap_after)
         else:
-            index_result[result_pos] = Int32(gap_before)
-        status_result[result_pos] = 0
+            index_result[unsafe_offset=result_pos] = Int32(gap_before)
+        status_result[unsafe_offset=result_pos] = 0
         return
 
     if is_dst < 0:
-        index_result[result_pos] = -1
-        status_result[result_pos] = 2
+        index_result[unsafe_offset=result_pos] = -1
+        status_result[unsafe_offset=result_pos] = 2
         return
 
     var want = Int8(1) if is_dst != 0 else Int8(0)
-    var first_matches = dst_flags[first] == want
-    var second_matches = dst_flags[second] == want
+    var first_matches = dst_flags[unsafe_offset=first] == want
+    var second_matches = dst_flags[unsafe_offset=second] == want
     if first_matches and not second_matches:
-        index_result[result_pos] = Int32(first)
+        index_result[unsafe_offset=result_pos] = Int32(first)
     elif second_matches and not first_matches:
-        index_result[result_pos] = Int32(second)
+        index_result[unsafe_offset=result_pos] = Int32(second)
     elif is_dst != 0:
-        index_result[result_pos] = Int32(
-            first if offsets[first] >= offsets[second] else second
+        index_result[unsafe_offset=result_pos] = Int32(
+            first if offsets[unsafe_offset=first]
+            >= offsets[unsafe_offset=second] else second
         )
     else:
-        index_result[result_pos] = Int32(
-            first if offsets[first] <= offsets[second] else second
+        index_result[unsafe_offset=result_pos] = Int32(
+            first if offsets[unsafe_offset=first]
+            <= offsets[unsafe_offset=second] else second
         )
-    status_result[result_pos] = 0
+    status_result[unsafe_offset=result_pos] = 0
 
 
 def resolve_local(
@@ -164,34 +170,19 @@ def resolve_local(
     indices: I32Ptr,
     statuses: I8Ptr,
 ):
-    var workers = (
-        min(LOCAL_MAX_WORKERS, num_physical_cores())
-        if count >= LOCAL_PARALLEL_COUNT
-        else 1
-    )
-
-    @parameter
-    def process(worker: Int):
-        var start = worker * count // workers
-        var stop = (worker + 1) * count // workers
-        for i in range(start, stop):
-            resolve_local_one(
-                transitions,
-                offsets,
-                dst_flags,
-                ntransitions,
-                walls[i],
-                is_dst,
-                max_offset,
-                indices,
-                statuses,
-                i,
-            )
-
-    if workers > 1:
-        parallelize[process](workers, workers)
-    else:
-        process(0)
+    for i in range(count):
+        resolve_local_one(
+            transitions,
+            offsets,
+            dst_flags,
+            ntransitions,
+            walls[unsafe_offset=i],
+            is_dst,
+            max_offset,
+            indices,
+            statuses,
+            i,
+        )
 
 
 @export("mptz_resolve_utc")
