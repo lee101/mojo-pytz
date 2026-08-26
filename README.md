@@ -75,9 +75,9 @@ object-producing APIs `localize_many(..., is_dst=False)` and
 
 | case | mojo-pytz | pytz reference | result |
 | --- | ---: | ---: | ---: |
-| UTC offsets, sorted (250k) | 1.72 ms | 100.37 ms | 58.26x faster |
-| UTC offsets, shuffled (250k) | 10.28 ms | 113.52 ms | 11.04x faster |
-| localize, ordinary times (100k) | 99.72 ms | 706.87 ms | 7.09x faster |
+| UTC offsets, sorted (250k) | 1.74 ms | 99.79 ms | 57.37x faster |
+| UTC offsets, shuffled (250k) | 10.13 ms | 110.99 ms | 10.95x faster |
+| localize, ordinary times (100k) | 96.25 ms | 638.30 ms | 6.63x faster |
 
 Sorted input is especially fast because the kernel walks the timestamps and
 transition table together. Shuffled input uses an independent binary search
@@ -87,8 +87,9 @@ still construct 100,000 Python `datetime` objects.
 There is no GPU backend. These kernels are branch-heavy integer table searches,
 while full localization is dominated by Python object construction. Device
 transfers would add overhead to work with no dense arithmetic loop. Independent
-large local-time batches run in parallel; smaller batches stay serial to avoid
-thread-launch overhead.
+searches also remain serial: every measured kernel is already more than 5x ahead
+of its pytz reference, so SIMD and thread-launch overhead are not added to these
+latency-sensitive paths.
 
 ## How it works
 
